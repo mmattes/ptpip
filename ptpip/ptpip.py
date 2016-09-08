@@ -179,8 +179,7 @@ class PtpIpInitFail(PtpIpPacket):
 
 class PtpIpCmdRequest(PtpIpPacket):
     """
-    Operation Code Operation Name
-    0x1000 Undefined
+    Operation Code Description
     0x1001 GetDeviceInfo
     0x1002 OpenSession
     0x1003 CloseSession
@@ -196,19 +195,45 @@ class PtpIpCmdRequest(PtpIpPacket):
     0x100D SendObject
     0x100E InitiateCapture
     0x100F FormatStore
-    0x1010 ResetDevice
-    0x1011 SelfTest
-    0x1012 SetObjectProtection
-    0x1013 PowerDown
     0x1014 GetDevicePropDesc
     0x1015 GetDevicePropValue
     0x1016 SetDevicePropValue
-    0x1017 ResetDevicePropValue
-    0x1018 TerminateOpenCapture
-    0x1019 MoveObject
-    0x101A CopyObject
     0x101B GetPartialObject
-    0x101C InitiateOpenCapture
+    0x90C0 InitiateCaptureRecInSdram
+    0x90C1 AfDrive
+    0x90C2 ChangeCameraMode
+    0x90C3 DeleteImagesInSdram
+    0x90C4 GetLargeThumb
+    0x90C7 GetEvent
+    0x90C8 DeviceReady
+    0x90C9 SetPreWbData
+    0x90CA GetVendorPropCodes
+    0x90CB AfAndCaptureRecInSdram
+    0x90CC GetPicCtrlData
+    0x90CD SetPicCtrlData
+    0x90CE DeleteCustomPicCtrl
+    0x90CF GetPicCtrlCapability
+    0x9201 StartLiveView
+    0x9202 EndLiveView
+    0x9203 GetLiveViewImage
+    0x9204 MfDrive
+    0x9205 ChangeAfArea
+    0x9206 AfDriveCancel
+    0x9207 InitiateCaptureRecInMedia
+    0x9209 GetVendorStorageIDs
+    0x920A StartMovieRecInCard
+    0x920B EndMovieRec
+    0x920C TerminateCapture
+    0x9400 GetPartialObjectHighSpeed
+    0x9407 SetTransferListLock
+    0x9408 GetTransferList
+    0x9409 NotifyFileAcquisitionStart
+    0x940A NotifyFileAcquisitionEnd
+    0x940B GetSpecificSizeObject
+    0x9801 GetObjectPropsSupported
+    0x9802 GetObjectPropDesc
+    0x9803 GetObjectPropValue
+    0x9805 GetObjectPropList
     """
     def __init__(self, data=None, cmd=None, param1=None, param2=None, param3=None, param4=None,
                 param5=None):
