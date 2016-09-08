@@ -26,23 +26,24 @@ class PtpIpConnection(object):
         self.send_recieve_ptpip_packet(PtpIpEventReq(), self.session_events)
 
         # 0x1002 OpenSession
-        ptip_cmd = PtpIpCmdRequest(cmd=0x1002, args=self.session_id)
+        ptip_cmd = PtpIpCmdRequest(cmd=0x1002, param1=struct.unpack('L', self.session_id)[0])
         self.send_recieve_ptpip_packet(ptip_cmd, self.session)
 
         # Start the Thread which is constantly checking the status of the camera and which is
         # processing new command packages which should be send
         thread = Thread(target=self.communication_thread)
+        thread.daemon = True
         thread.start()
 
     def communication_thread(self):
-        ptip_cmd = PtpIpCmdRequest(cmd=0x90c8, args='')
+        ptip_cmd = PtpIpCmdRequest(cmd=0x90c8)
         ptip_packet = self.send_recieve_ptpip_packet(ptip_cmd, self.session)
 
         while (ptip_packet.ptp_response_code == 0x2001 or ptip_packet.ptp_response_code == 0x2019):
             if (ptip_packet.ptp_response_code == 0x2001 and len(self.queue) > 0):
                 self.send_recieve_ptpip_packet(self.queue.pop(), self.session)
             else:
-                ptip_cmd = PtpIpCmdRequest(cmd=0x90c8, args='')
+                ptip_cmd = PtpIpCmdRequest(cmd=0x90c8)
                 ptip_packet = self.send_recieve_ptpip_packet(ptip_cmd, self.session)
 
             # wait 1 second before new packets are processed/send to the camera
@@ -209,14 +210,29 @@ class PtpIpCmdRequest(PtpIpPacket):
     0x101B GetPartialObject
     0x101C InitiateOpenCapture
     """
-    def __init__(self, data=None, cmd=None, args=''):
+    def __init__(self, data=None, cmd=None, param1=None, param2=None, param3=None, param4=None,
+                param5=None):
         super(PtpIpCmdRequest, self).__init__()
         self.cmdtype = struct.pack('I', 0x06)
         self.unkown = struct.pack('I', 0x01)
         self.ptp_cmd = struct.pack('H', cmd)
         # Todo: Transaction ID generieren
         self.transaction_id = struct.pack('I', 0x01)
-        self.args = args
+        self.args = ''
+        if param1 is not None:
+            self.args = self.args + struct.pack('L', param1)
+
+        if param2 is not None:
+            self.args = self.args + struct.pack('L', param2)
+
+        if param3 is not None:
+            self.args = self.args + struct.pack('L', param3)
+
+        if param4 is not None:
+            self.args = self.args + struct.pack('L', param4)
+
+        if param5 is not None:
+            self.args = self.args + struct.pack('L', param5)
 
     def data(self):
         return self.cmdtype + self.unkown + self.ptp_cmd + self.transaction_id + self.args
