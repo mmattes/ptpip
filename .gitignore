@@ -1,0 +1,5 @@
+.cache/
+ptpip.egg-info/
+run_tests.sh
+tests/
+*.pyc
