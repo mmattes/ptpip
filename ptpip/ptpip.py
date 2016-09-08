@@ -3,6 +3,7 @@
 import socket
 import struct
 import uuid
+import time
 
 from threading import Thread
 
@@ -39,11 +40,13 @@ class PtpIpConnection(object):
 
         while (ptip_packet.ptp_response_code == 0x2001 or ptip_packet.ptp_response_code == 0x2019):
             if (ptip_packet.ptp_response_code == 0x2001 and len(self.queue) > 0):
-                print "Got something new to send, sending it now...."
                 self.send_recieve_ptpip_packet(self.queue.pop(), self.session)
             else:
                 ptip_cmd = PtpIpCmdRequest(cmd=0x90c8, args='')
                 ptip_packet = self.send_recieve_ptpip_packet(ptip_cmd, self.session)
+
+            # wait 1 second before new packets are processed/send to the camera
+            time.sleep(1)
             pass
 
     def send_ptpip_cmd(self, ptpip_packet):
