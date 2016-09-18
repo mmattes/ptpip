@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -
-import socket
-import struct
 import uuid
 import time
+import socket
+import struct
 
 from threading import Thread
 
@@ -16,7 +16,9 @@ class PtpIpConnection(object):
         self.session = None
         self.session_events = None
         self.session_id = None
-        self.queue = []
+        self.cmd_queue = []
+        self.event_queue = []
+        self.object_queue = []
 
     def open(self, host='192.168.1.1', port=15740):
         # Open both session, first one for for commands, second for events
@@ -36,22 +38,32 @@ class PtpIpConnection(object):
         thread.start()
 
     def communication_thread(self):
-        ptip_cmd = PtpIpCmdRequest(cmd=0x90c8)
-        ptip_packet = self.send_recieve_ptpip_packet(ptip_cmd, self.session)
-
-        while (ptip_packet.ptp_response_code == 0x2001 or ptip_packet.ptp_response_code == 0x2019):
-            if (ptip_packet.ptp_response_code == 0x2001 and len(self.queue) > 0):
-                self.send_recieve_ptpip_packet(self.queue.pop(), self.session)
+        while True:
+            if len(self.cmd_queue) == 0:
+                # do a ping receive a pong (same as ping) as reply to keep the connection alive
+                # couldnt get any reply onto a propper PtpIpPing packet so i am querying the status
+                # of the device
+                ptpip_packet_reply = self.send_recieve_ptpip_packet(PtpIpCmdRequest(cmd=0x90C8),
+                    self.session)
+                if isinstance(ptpip_packet_reply, PtpIpCmdResponse):
+                    time.sleep(1)
+                    continue
             else:
-                ptip_cmd = PtpIpCmdRequest(cmd=0x90c8)
-                ptip_packet = self.send_recieve_ptpip_packet(ptip_cmd, self.session)
+                # get the next command from command the queue
+                ptip_cmd = self.cmd_queue.pop()
+                ptpip_packet_reply = self.send_recieve_ptpip_packet(ptip_cmd, self.session)
+                if (ptpip_packet_reply.ptp_response_code == 0x2001 and \
+                        ptpip_packet_reply.ptp_response_code == 0x2019):
+                    print "Cmd send successfully"
+                else:
+                    print "cmd reply is: " + str(ptpip_packet_reply.ptp_response_code)
 
             # wait 1 second before new packets are processed/send to the camera
             time.sleep(1)
             pass
 
     def send_ptpip_cmd(self, ptpip_packet):
-        self.queue.append(ptpip_packet)
+        self.cmd_queue.append(ptpip_packet)
 
     def connect(self, host='192.168.1.1', port=15740):
         try:
@@ -65,18 +77,70 @@ class PtpIpConnection(object):
         return s
 
     def send_recieve_ptpip_packet(self, ptpip_packet, session):
-        if isinstance(ptpip_packet, PtpIpEventReq):
-            if ptpip_packet.session_id is None:
+        if isinstance(ptpip_packet, PtpIpInitCmdReq):
+            self.send_data(ptpip_packet.data(), session)
+
+            # set the session id of the object if the reply is of type PtpIpInitCmdAck
+            ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+
+            if isinstance(ptpip_packet_reply, PtpIpInitCmdAck):
+                self.session_id = ptpip_packet_reply.session_id
+
+        elif isinstance(ptpip_packet, PtpIpEventReq):
+            self.send_ptpip_event_req(ptpip_packet, session)
+
+            ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+
+        elif isinstance(ptpip_packet, PtpIpCmdRequest) and ptpip_packet.ptp_cmd == 0x90C7:
+            self.send_data(ptpip_packet.data(), session)
+
+            ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+
+            if isinstance(ptpip_packet_reply, PtpIpStartDataPacket):
+                data_length = struct.unpack('I', ptpip_packet_reply.length)[0]
+                ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+                data = ptpip_packet_reply.data
+                while isinstance(ptpip_packet_reply, PtpIpDataPacket):
+                    data = data + ptpip_packet_reply.data
+                    ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+
+            if data_length == len(data):
+                events = PtpIpEventFactory(data).get_events()
+                for event in events:
+                    self.event_queue.append(event)
+
+            ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+
+        elif isinstance(ptpip_packet, PtpIpCmdRequest) and ptpip_packet.ptp_cmd == 0x1009:
+            self.send_data(ptpip_packet.data(), session)
+
+            ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+
+            if isinstance(ptpip_packet_reply, PtpIpStartDataPacket):
+                data_length = struct.unpack('I', ptpip_packet_reply.length)[0]
+                ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+                data = ptpip_packet_reply.data
+                while isinstance(ptpip_packet_reply, PtpIpDataPacket):
+                    data = data + ptpip_packet_reply.data
+                    ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+
+            if data_length == len(data):
+                self.object_queue.append(PtpIpDataObject(ptpip_packet.param1, data))
+
+            ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+
+        else:
+            self.send_data(ptpip_packet.data(), session)
+
+            ptpip_packet_reply = PtpIpPacket().factory(data=self.recieve_data(session))
+
+        return ptpip_packet_reply
+
+    def send_ptpip_event_req(self, ptpip_packet, session):
+        # add the session id of the object itself if it is not specified in the package
+        if ptpip_packet.session_id is None:
                 ptpip_packet.session_id = self.session_id
-
         self.send_data(ptpip_packet.data(), session)
-
-        ptpip_packet = PtpIpPacket().factory(data=self.recieve_data(session))
-
-        if isinstance(ptpip_packet, PtpIpInitCmdAck):
-            self.session_id = ptpip_packet.session_id
-
-        return ptpip_packet
 
     def send_data(self, data, session):
         session.send(struct.pack('I', len(data) + 4) + data)
@@ -84,6 +148,7 @@ class PtpIpConnection(object):
     def recieve_data(self, session):
         data = session.recv(4)
         (data_length,) = struct.unpack('I', data)
+        print "Laenge des Paketes: " + str(data_length)
         while (data_length) > len(data):
             data += session.recv(data_length - len(data))
         return data[4:]
@@ -98,6 +163,7 @@ class PtpIpPacket(object):
         if data is None:
             self.cmdtype = None
         else:
+            print "Cmd Type: " + str(struct.unpack('I', data[0:4])[0])
             self.cmdtype = struct.unpack('I', data[0:4])[0]
 
         if self.cmdtype == 1:
@@ -114,6 +180,14 @@ class PtpIpPacket(object):
             return PtpIpCmdRequest(data[4:])
         elif self.cmdtype == 7:
             return PtpIpCmdResponse(data[4:])
+        elif self.cmdtype == 9:
+            return PtpIpStartDataPacket(data[4:])
+        elif self.cmdtype == 10:
+            return PtpIpDataPacket(data[4:])
+        elif self.cmdtype == 12:
+            return PtpIpEndDataPacket(data[4:])
+        elif self.cmdtype == 13:
+            return PtpIpPing(data[4:])
 
     def data(self):
         pass
@@ -240,27 +314,33 @@ class PtpIpCmdRequest(PtpIpPacket):
         super(PtpIpCmdRequest, self).__init__()
         self.cmdtype = struct.pack('I', 0x06)
         self.unkown = struct.pack('I', 0x01)
-        self.ptp_cmd = struct.pack('H', cmd)
+        self.ptp_cmd = cmd
+        self.param1 = param1
+        self.param2 = param2
+        self.param3 = param3
+        self.param4 = param4
+        self.param5 = param5
         # Todo: Transaction ID generieren
-        self.transaction_id = struct.pack('I', 0x01)
+        self.transaction_id = struct.pack('I', 0x06)
         self.args = ''
-        if param1 is not None:
-            self.args = self.args + struct.pack('L', param1)
+        if self.param1 is not None:
+            self.args = self.args + struct.pack('L', self.param1)
 
-        if param2 is not None:
-            self.args = self.args + struct.pack('L', param2)
+        if self.param2 is not None:
+            self.args = self.args + struct.pack('L', self.param2)
 
-        if param3 is not None:
-            self.args = self.args + struct.pack('L', param3)
+        if self.param3 is not None:
+            self.args = self.args + struct.pack('L', self.param3)
 
-        if param4 is not None:
-            self.args = self.args + struct.pack('L', param4)
+        if self.param4 is not None:
+            self.args = self.args + struct.pack('L', self.param4)
 
-        if param5 is not None:
-            self.args = self.args + struct.pack('L', param5)
+        if self.param5 is not None:
+            self.args = self.args + struct.pack('L', self.param5)
 
     def data(self):
-        return self.cmdtype + self.unkown + self.ptp_cmd + self.transaction_id + self.args
+        return self.cmdtype + self.unkown + struct.pack('H', self.ptp_cmd) + \
+            self.transaction_id + self.args
 
 
 class PtpIpCmdResponse(PtpIpPacket):
@@ -307,3 +387,121 @@ class PtpIpCmdResponse(PtpIpPacket):
             self.ptp_response_code = struct.unpack('H', data[0:2])[0]
             self.transaction_id = data[2:6]
             self.args = data[6:]
+
+
+class PtpIpStartDataPacket(PtpIpPacket):
+    """docstring for Start_Data_Packet"""
+    def __init__(self, data=None):
+        self.cmdtype = struct.pack('I', 0x09)
+        super(PtpIpStartDataPacket, self).__init__()
+        if data is not None:
+            self.transaction_id = data[0:4]
+            self.length = data[4:8]
+
+
+class PtpIpDataPacket(PtpIpPacket):
+    """docstring for Start_Data_Packet"""
+    def __init__(self, data=None):
+        self.cmdtype = struct.pack('I', 0x10)
+        super(PtpIpDataPacket, self).__init__()
+        if data is not None:
+            self.transaction_id = data[0:4]
+            self.data = data[4:]
+
+
+class PtpIpCancelTransaction(PtpIpPacket):
+    """docstring for Start_Data_Packet"""
+    def __init__(self, data=None):
+        self.cmdtype = struct.pack('I', 0x11)
+        super(PtpIpCancelTransaction, self).__init__()
+        if data is not None:
+            self.transaction_id = data[0:4]
+
+
+class PtpIpEndDataPacket(PtpIpPacket):
+    """docstring for Start_Data_Packet"""
+    def __init__(self, data=None):
+        self.cmdtype = struct.pack('I', 0x12)
+        super(PtpIpEndDataPacket, self).__init__()
+        if data is not None:
+            self.transaction_id = data[0:4]
+            print "transaction_id: " + str(struct.unpack('I', self.transaction_id)[0])
+            self.data = data[4:]
+
+
+class PtpIpPing(PtpIpPacket):
+    """docstring for Start_Data_Packet"""
+    def __init__(self, data=None):
+        self.cmdtype = struct.pack('I', 0x13)
+        super(PtpIpPing, self).__init__()
+        if data is not None:
+            self.data = ''
+
+    def data(self):
+        return self.cmdtype
+
+
+class PtpIpEvent(object):
+    """
+    EventCode Description
+    0x4001 CancelTransaction
+    0x4002 ObjectAdded
+    0x4003 ObjectRemoved
+    0x4004 StoreAdded
+    0x4005 StoreRemoved
+    0x4006 DevicePropChanged
+    0x4007 ObjectInfoChanged
+    0x4008 DeviceInfoChanged
+    0x4009 RequestObjectTransfer
+    0x400A StoreFull
+    0x400C StorageInfoChanged
+    0x400D CaptureComplete
+    0xC101 ObjectAddedInSdram
+    0xC102 CaptureCompleteRecInSdram
+    0xC105 RecordingInterrupted
+
+    """
+    def __init__(self, event_code, event_parameter):
+        super(PtpIpEvent, self).__init__()
+        self.event_code = int(event_code)
+        self.event_parameter = int(event_parameter)
+
+
+class PtpIpEventFactory(object):
+    """
+    This is a factory to produce an array of PtpIpEvent objects if it got passd a data reply
+    from a GetEvent request 0x90C7
+    """
+    def __init__(self, data):
+        super(PtpIpEventFactory, self).__init__()
+        # create an empty array for the PtpIpEvent object which will be replied
+        self.events = []
+
+        # get the amount of events passed from the data passed to the factory
+        amount_of_events = struct.unpack('H', data[0:2])[0]
+
+        # set an counter and an offset of 2 as the first two bytes are already processed
+        counter = 1
+        offset = 2
+        while counter <= amount_of_events:
+            # get the event_code which consists of two bytes
+            event_code = str(struct.unpack('H', data[offset:offset+2])[0])
+
+            # get the event_parameter which consists of 4 bytes
+            event_parameter = str(struct.unpack('I', data[offset+2:offset+6])[0])
+            self.events.append(PtpIpEvent(event_code, event_parameter))
+
+            # increase the offset by 6 to get to the next event_code and event_parameter pair
+            offset = offset + 6
+            counter = counter + 1
+
+    def get_events(self):
+        return self.events
+
+
+class PtpIpDataObject(object):
+    """docstring for PtpIpDataObject"""
+    def __init__(self, object_handle, data):
+        super(PtpIpDataObject, self).__init__()
+        self.object_handle = object_handle
+        self.data = data
