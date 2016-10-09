@@ -5,8 +5,6 @@ import time
 import socket
 import struct
 
-from threading import Thread
-
 
 class PtpIpConnection(object):
 
@@ -31,11 +29,6 @@ class PtpIpConnection(object):
         ptip_cmd = PtpIpCmdRequest(cmd=0x1002, param1=struct.unpack('L', self.session_id)[0])
         self.send_recieve_ptpip_packet(ptip_cmd, self.session)
 
-        # Start the Thread which is constantly checking the status of the camera and which is
-        # processing new command packages which should be send
-        thread = Thread(target=self.communication_thread)
-        thread.daemon = True
-        thread.start()
 
     def communication_thread(self):
         while True:
