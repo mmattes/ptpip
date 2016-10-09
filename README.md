@@ -8,7 +8,7 @@ I've built, used and tested it with a Nikon D5300 only but it should work with o
 Unfortunately there is not really a good documentation available how the PTP/IP protocol works in detail but this webpage here describes it briefly http://gphoto.org/doc/ptpip.php. Basically it is the PTP protocol, which is used to communicate over USB, adapted to a socket TCP/IP connection.
 
 # Quickstart
-'''python
+```python
 from ptpip import PtpIpConnection
 from ptpip import PtpIpCmdRequest
 from threading import Thread
@@ -26,7 +26,7 @@ thread.start()
 # create a PTP/IP command request object and add it to the queue of the PTP/IP connection object
 ptpip_cmd = PtpIpCmdRequest(cmd=0x9207, param1=0xffffffff, param2=0x0000)
 ptpip_packet = ptpip.cmd_queue.append(ptpip_cmd)
-'''
+```
 
 # Basic concepts
 
@@ -35,13 +35,13 @@ The PtpIpConnection is the basic connection to the camera, the communcation_thre
 Whenever the camera is doing something it will create an event which can be queried by a PtpIpCmdRequest which queries the events into the event_queue of the PtpIpConnection
 
 ## Query PtpIpEvents
-'''python
+```python
 PtpIpCmdRequest(cmd=0x9207, param1=0xffffffff, param2=0x0000)
-'''
+```
 
 You can now go through the event_queue to find the event you are looking for. For example an 0x4002 ObjectAdded event. This event gives you an object id in the event.event_parameter which can be retrieved with another PtpIpCmdRequest, any object recieved will be added to the object_queue of the PtpIpConnection
 
 ## Get an Object
-'''python
+```python
 PtpIpCmdRequest(cmd=0x1009, param1=event.event_parameter)
-'''
+```
