@@ -5,8 +5,8 @@ import sys
 import time
 
 from PIL import Image
-from ptpip.ptpip import PtpIpConnection
-from ptpip.ptpip import PtpIpCmdRequest
+from ptpip import PtpIpConnection
+from ptpip import PtpIpCmdRequest
 from threading import Thread
 
 # open up a PTP/IP connection, default IP and Port is host='192.168.1.1', port=15740
@@ -15,7 +15,7 @@ ptpip.open()
 
 # Start the Thread which is constantly checking the status of the camera and which is
 # processing new command packages which should be send
-thread = Thread(target=self.communication_thread)
+thread = Thread(target=ptpip.communication_thread)
 thread.daemon = True
 thread.start()
 
